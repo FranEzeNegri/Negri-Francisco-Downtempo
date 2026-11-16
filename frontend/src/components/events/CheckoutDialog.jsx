@@ -1,30 +1,30 @@
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import Button from "../ui/Button.jsx";
-import FormField from "../ui/FormField.jsx";
 import Modal from "../ui/Modal.jsx";
 import Stepper from "../ui/Stepper.jsx";
 import TicketCard from "../tickets/TicketCard.jsx";
-import { createReserva, emailRecordado, recordarEmail } from "../../services/reservaService.js";
+import { createReserva } from "../../services/reservaService.js";
 import { getMenu } from "../../services/menuService.js";
 import { useAsync } from "../../utils/useAsync.js";
+import { useAuth } from "../../context/AuthContext.jsx";
 import { useToast } from "../../context/ToastContext.jsx";
 import { fechaLarga, formatPrecio } from "../../utils/format.js";
-import { validateCompraForm, MAX_ENTRADAS_POR_COMPRA, MAX_UNIDADES_POR_ITEM } from "../../utils/validators.js";
+import { MAX_ENTRADAS_POR_COMPRA, MAX_UNIDADES_POR_ITEM } from "../../utils/validators.js";
 import "./CheckoutDialog.css";
 
-// Compra simulada en dos pasos dentro de un modal: formulario → entradas con
-// código y QR. No se cobra nada; el backend descuenta el cupo y genera los
-// códigos. Opcionalmente se puede dejar encargado un pedido del menú.
+// Compra en dos pasos dentro de un modal: elegir cantidad y pedido → entradas
+// con código y QR. Hace falta tener sesión iniciada: la reserva queda a nombre
+// de la cuenta. El pago se hace en la puerta. Opcionalmente se puede dejar
+// encargado un pedido del menú.
 function CheckoutDialog({ evento, onClose, onPurchased }) {
+  const { cliente, sesionVencida } = useAuth();
   const toast = useToast();
+  const location = useLocation();
   const { data: menu } = useAsync(getMenu, []);
 
   const [cantidad, setCantidad] = useState(1);
-  const [nombre, setNombre] = useState("");
-  const [email, setEmail] = useState(emailRecordado);
   const [pedido, setPedido] = useState({}); // { [idItem]: cantidad }
-  const [errors, setErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [reserva, setReserva] = useState(null);
 
@@ -35,25 +35,18 @@ function CheckoutDialog({ evento, onClose, onPurchased }) {
 
   const handleSubmit = async (event) => {
     event.preventDefault();
-
-    const found = validateCompraForm({ nombre, email });
-    setErrors(found);
-    if (Object.keys(found).length > 0) return;
-
     setSubmitting(true);
 
     try {
       const result = await createReserva({
         idEvento: evento.idEvento,
         cantidadEntradas: cantidad,
-        nombre: nombre.trim(),
-        email: email.trim(),
         pedido: lineas.map((item) => ({ idItem: item.idItem, cantidad: pedido[item.idItem] })),
       });
-      recordarEmail(result.email);
       setReserva(result);
       onPurchased();
     } catch (err) {
+      if (err.status === 401) sesionVencida();
       toast.error(err.message);
       // Si se agotó el cupo mientras compraba, refrescamos la cartelera.
       onPurchased();
@@ -61,6 +54,32 @@ function CheckoutDialog({ evento, onClose, onPurchased }) {
       setSubmitting(false);
     }
   };
+
+  if (!cliente) {
+    return (
+      <Modal onClose={onClose} labelledBy="checkout-title" className="checkout">
+        <p className="eyebrow">Comprar entradas</p>
+        <h3 id="checkout-title" className="checkout__title">
+          {evento.nombre}
+        </h3>
+        <p className="checkout__note">Para comprar entradas necesitás una cuenta. Así podés ver tus QR y cancelar cuando quieras.</p>
+        <div className="checkout__actions">
+          <Link
+            to="/ingresar"
+            state={{ from: location.pathname }}
+            className="btn btn--primary"
+            onClick={onClose}
+            data-autofocus
+          >
+            Ingresar o crear cuenta
+          </Link>
+          <Button variant="secondary" onClick={onClose}>
+            Ahora no
+          </Button>
+        </div>
+      </Modal>
+    );
+  }
 
   return (
     <Modal onClose={onClose} labelledBy="checkout-title" className="checkout">
@@ -78,31 +97,19 @@ function CheckoutDialog({ evento, onClose, onPurchased }) {
 
           <div className="checkout__qty">
             <span>Cantidad</span>
-            <Stepper value={cantidad} min={1} max={maxEntradas} onChange={setCantidad} label="entradas" />
+            <Stepper
+              value={cantidad}
+              min={1}
+              max={maxEntradas}
+              onChange={setCantidad}
+              label="entradas"
+            />
             <span className="checkout__stock">{evento.entradasDisponibles} disponibles</span>
           </div>
 
-          <FormField
-            id="checkout-nombre"
-            label="Nombre completo"
-            value={nombre}
-            onChange={(e) => setNombre(e.target.value)}
-            error={errors.nombre}
-            autoComplete="name"
-            required
-            data-autofocus
-          />
-          <FormField
-            id="checkout-email"
-            label="Email"
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            error={errors.email}
-            hint="Con este email vas a poder ver y cancelar tus entradas."
-            autoComplete="email"
-            required
-          />
+          <p className="checkout__buyer">
+            Comprás como <strong>{cliente.nombre}</strong> ({cliente.email})
+          </p>
 
           {menu && menu.length > 0 && (
             <details className="checkout__preorder">
@@ -154,7 +161,7 @@ function CheckoutDialog({ evento, onClose, onPurchased }) {
           <Button type="submit" loading={submitting}>
             Confirmar compra
           </Button>
-          <p className="checkout__note">Compra simulada: no se realiza ningún cobro.</p>
+          <p className="checkout__note">El pago se realiza en la puerta del local.</p>
         </form>
       )}
     </Modal>
@@ -196,19 +203,16 @@ function Confirmacion({ reserva, onClose }) {
           </div>
         ))}
         <div className="checkout__total">
-          <dt>Total</dt>
+          <dt>Total a pagar en la puerta</dt>
           <dd>{formatPrecio(reserva.total)}</dd>
         </div>
       </dl>
       <p className="checkout__note">
-        Mostrá el QR o el código en la puerta. Los vas a encontrar siempre en “Mis entradas” con el email{" "}
-        {reserva.email}.
+        Mostrá el QR o el código en la puerta. Los vas a encontrar siempre en “Mis entradas”.
       </p>
 
       <div className="checkout__actions">
-        <Button onClick={onClose}>
-          Listo
-        </Button>
+        <Button onClick={onClose}>Listo</Button>
         <Link to="/mis-entradas" className="btn btn--secondary" onClick={onClose}>
           Ver mis entradas
         </Link>

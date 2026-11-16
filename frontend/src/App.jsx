@@ -1,6 +1,8 @@
 import { useEffect } from "react";
 import { BrowserRouter, Route, Routes, useLocation } from "react-router-dom";
 import { ToastProvider } from "./context/ToastContext.jsx";
+import { AuthProvider } from "./context/AuthContext.jsx";
+import LoginPage from "./pages/LoginPage.jsx";
 import Navbar from "./components/layout/Navbar.jsx";
 import Footer from "./components/layout/Footer.jsx";
 import HomePage from "./pages/HomePage.jsx";
@@ -33,23 +35,26 @@ function ScrollManager() {
 function App() {
   return (
     <ToastProvider>
-      <BrowserRouter>
-        <ScrollManager />
-        <a href="#main-content" className="skip-link">
-          Saltar al contenido principal
-        </a>
-        <Navbar />
-        <main id="main-content" tabIndex={-1}>
-          <Routes>
-            <Route path="/" element={<HomePage />} />
-            <Route path="/eventos/:id" element={<EventoPage />} />
-            <Route path="/mis-entradas" element={<MisEntradasPage />} />
-            <Route path="/admin" element={<AdminPage />} />
-            <Route path="*" element={<NotFoundPage />} />
-          </Routes>
-        </main>
-        <Footer />
-      </BrowserRouter>
+      <AuthProvider>
+        <BrowserRouter>
+          <ScrollManager />
+          <a href="#main-content" className="skip-link">
+            Saltar al contenido principal
+          </a>
+          <Navbar />
+          <main id="main-content" tabIndex={-1}>
+            <Routes>
+              <Route path="/" element={<HomePage />} />
+              <Route path="/eventos/:id" element={<EventoPage />} />
+              <Route path="/ingresar" element={<LoginPage />} />
+              <Route path="/mis-entradas" element={<MisEntradasPage />} />
+              <Route path="/admin" element={<AdminPage />} />
+              <Route path="*" element={<NotFoundPage />} />
+            </Routes>
+          </main>
+          <Footer />
+        </BrowserRouter>
+      </AuthProvider>
     </ToastProvider>
   );
 }

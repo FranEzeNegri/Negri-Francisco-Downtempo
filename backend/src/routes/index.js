@@ -6,8 +6,11 @@ import entradaRoutes from "./entradaRoutes.js";
 import menuRoutes from "./menuRoutes.js";
 import adminRoutes from "./adminRoutes.js";
 
+import authRoutes from "./authRoutes.js";
+
 const router = Router();
 
+router.use("/auth", authRoutes);
 router.use("/djs", djRoutes);
 router.use("/eventos", eventoRoutes);
 router.use("/reservas", reservaRoutes);

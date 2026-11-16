@@ -15,8 +15,8 @@ class ReservaRepository {
         return this.findAll().filter((reserva) => reserva.idEvento === idEvento);
     }
 
-    findByEmail(email) {
-        return this.findAll().filter((reserva) => reserva.email === email);
+    findByCliente(idCliente) {
+        return this.findAll().filter((reserva) => reserva.idCliente === idCliente);
     }
 
     existsCodigo(codigo) {

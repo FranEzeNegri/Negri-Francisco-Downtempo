@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
+import { useAuth } from "../../context/AuthContext.jsx";
+import { useToast } from "../../context/ToastContext.jsx";
 import "./Navbar.css";
 
 const LINKS = [
@@ -13,9 +15,17 @@ const LINKS = [
 function Navbar() {
   const [open, setOpen] = useState(false);
   const location = useLocation();
+  const { cliente, cerrarSesion } = useAuth();
+  const toast = useToast();
 
   // En celular el menú se cierra al elegir un link y con Escape.
   const cerrar = () => setOpen(false);
+
+  const handleSalir = async () => {
+    cerrar();
+    await cerrarSesion();
+    toast.success("Cerraste sesión.");
+  };
 
   useEffect(() => {
     if (!open) return undefined;
@@ -55,6 +65,21 @@ function Navbar() {
                 </Link>
               </li>
             ))}
+            <li>
+              {cliente ? (
+                <button type="button" onClick={handleSalir} className="navbar__session">
+                  Salir ({cliente.nombre.split(" ")[0]})
+                </button>
+              ) : (
+                <Link
+                  to="/ingresar"
+                  onClick={cerrar}
+                  aria-current={location.pathname === "/ingresar" ? "page" : undefined}
+                >
+                  Ingresar
+                </Link>
+              )}
+            </li>
           </ul>
 
           <Link to="/#entradas" className="navbar__cta" onClick={cerrar}>

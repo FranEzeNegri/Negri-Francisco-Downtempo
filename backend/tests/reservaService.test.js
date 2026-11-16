@@ -5,21 +5,29 @@ import store from "../src/db/store.js";
 import reservaService from "../src/services/ReservaService.js";
 import eventoService from "../src/services/EventoService.js";
 import entradaService from "../src/services/EntradaService.js";
-import { BadRequestError, ConflictError, NotFoundError } from "../src/exceptions/AppError.js";
+import authService from "../src/services/AuthService.js";
+import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from "../src/exceptions/AppError.js";
 import { Messages } from "../src/enums/Messages.js";
 import { diasDesdeHoy } from "../src/utils/fechas.js";
 
+const registrar = (nombre, email) => authService.registrar({ nombre, email, password: "clave-segura" }).cliente;
+
+// Cliente con sesión que hace las compras de cada test.
+let ana;
+
 const compra = (extra = {}) => ({
+    idCliente: ana.idCliente,
     idEvento: 1,
     cantidadEntradas: 2,
-    nombre: "  Ana Pérez ",
-    email: "  ANA@mail.com ",
     ...extra
 });
 
 const conMensaje = (ErrorClass, message) => (error) => error instanceof ErrorClass && error.message === message;
 
-beforeEach(() => store.reset());
+beforeEach(() => {
+    store.reset();
+    ana = registrar("  Ana Pérez ", "  ANA@mail.com ");
+});
 
 describe("ReservaService.create", () => {
     it("descuenta el cupo y genera un código único por entrada", () => {
@@ -40,12 +48,12 @@ describe("ReservaService.create", () => {
         assert.equal(reserva.total, 16000);
     });
 
-    it("reutiliza el mismo cliente cuando el email se repite", () => {
-        const primera = reservaService.create(compra());
-        const segunda = reservaService.create(compra({ idEvento: 2, email: "ana@MAIL.com" }));
-
-        assert.equal(primera.idCliente, segunda.idCliente);
-        assert.equal(store.get("clientes").length, 1);
+    it("rechaza la compra de un cliente que no existe y no descuenta cupo", () => {
+        assert.throws(
+            () => reservaService.create(compra({ idCliente: 999 })),
+            conMensaje(NotFoundError, Messages.CLIENTE_NOT_FOUND)
+        );
+        assert.equal(eventoService.getById(1).entradasDisponibles, 150);
     });
 
     it("suma el pre-pedido del menú al total y junta ítems repetidos", () => {
@@ -93,13 +101,14 @@ describe("ReservaService.create", () => {
     });
 });
 
-describe("ReservaService.getByEmail", () => {
-    it("devuelve solo las reservas de ese email, de la más nueva a la más vieja", () => {
+describe("ReservaService.getByCliente", () => {
+    it("devuelve solo las reservas de ese cliente, de la más nueva a la más vieja", () => {
+        const otro = registrar("Beto", "beto@mail.com");
         const primera = reservaService.create(compra());
         const segunda = reservaService.create(compra({ idEvento: 2 }));
-        reservaService.create(compra({ email: "otro@mail.com" }));
+        reservaService.create(compra({ idCliente: otro.idCliente }));
 
-        const reservas = reservaService.getByEmail("Ana@Mail.com");
+        const reservas = reservaService.getByCliente(ana.idCliente);
 
         assert.deepEqual(
             reservas.map((reserva) => reserva.idReserva),
@@ -107,8 +116,19 @@ describe("ReservaService.getByEmail", () => {
         );
     });
 
-    it("devuelve una lista vacía si el email no tiene compras", () => {
-        assert.deepEqual(reservaService.getByEmail("nadie@mail.com"), []);
+    it("devuelve una lista vacía si el cliente no tiene compras", () => {
+        assert.deepEqual(reservaService.getByCliente(ana.idCliente), []);
+    });
+
+    it("no deja ver el detalle de una reserva de otro cliente", () => {
+        const otro = registrar("Beto", "beto@mail.com");
+        const reserva = reservaService.create(compra());
+
+        assert.equal(reservaService.getById(reserva.idReserva, ana.idCliente).idReserva, reserva.idReserva);
+        assert.throws(
+            () => reservaService.getById(reserva.idReserva, otro.idCliente),
+            conMensaje(ForbiddenError, Messages.RESERVA_AJENA)
+        );
     });
 });
 
@@ -116,28 +136,29 @@ describe("ReservaService.cancel", () => {
     it("cancela la reserva y devuelve las entradas al cupo", () => {
         const reserva = reservaService.create(compra());
 
-        const cancelada = reservaService.cancel(reserva.idReserva, "ana@mail.com");
+        const cancelada = reservaService.cancel(reserva.idReserva, ana.idCliente);
 
         assert.equal(cancelada.estado, "cancelada");
         assert.equal(eventoService.getById(1).entradasDisponibles, 150);
     });
 
-    it("exige el mismo email con el que se compró", () => {
+    it("no deja cancelar la reserva de otro cliente", () => {
+        const otro = registrar("Beto", "beto@mail.com");
         const reserva = reservaService.create(compra());
 
         assert.throws(
-            () => reservaService.cancel(reserva.idReserva, "otro@mail.com"),
-            conMensaje(BadRequestError, Messages.RESERVA_EMAIL_NO_COINCIDE)
+            () => reservaService.cancel(reserva.idReserva, otro.idCliente),
+            conMensaje(ForbiddenError, Messages.RESERVA_AJENA)
         );
         assert.equal(eventoService.getById(1).entradasDisponibles, 148);
     });
 
     it("no deja cancelar dos veces (el cupo no se devuelve doble)", () => {
         const reserva = reservaService.create(compra());
-        reservaService.cancel(reserva.idReserva, "ana@mail.com");
+        reservaService.cancel(reserva.idReserva, ana.idCliente);
 
         assert.throws(
-            () => reservaService.cancel(reserva.idReserva, "ana@mail.com"),
+            () => reservaService.cancel(reserva.idReserva, ana.idCliente),
             conMensaje(ConflictError, Messages.RESERVA_YA_CANCELADA)
         );
         assert.equal(eventoService.getById(1).entradasDisponibles, 150);
@@ -148,7 +169,7 @@ describe("ReservaService.cancel", () => {
         entradaService.validar(reserva.entradas[0].codigo);
 
         assert.throws(
-            () => reservaService.cancel(reserva.idReserva, "ana@mail.com"),
+            () => reservaService.cancel(reserva.idReserva, ana.idCliente),
             conMensaje(ConflictError, Messages.RESERVA_NO_CANCELABLE_USADA)
         );
     });
@@ -158,7 +179,7 @@ describe("ReservaService.cancel", () => {
         store.get("eventos").find((evento) => evento.idEvento === 1).fecha = diasDesdeHoy(-1);
 
         assert.throws(
-            () => reservaService.cancel(reserva.idReserva, "ana@mail.com"),
+            () => reservaService.cancel(reserva.idReserva, ana.idCliente),
             conMensaje(ConflictError, Messages.RESERVA_NO_CANCELABLE_PASADA)
         );
     });
@@ -186,7 +207,7 @@ describe("EntradaService", () => {
 
     it("no valida entradas de una reserva cancelada", () => {
         const reserva = reservaService.create(compra());
-        reservaService.cancel(reserva.idReserva, "ana@mail.com");
+        reservaService.cancel(reserva.idReserva, ana.idCliente);
 
         assert.throws(
             () => entradaService.validar(reserva.entradas[0].codigo),

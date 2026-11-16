@@ -88,6 +88,7 @@ export function buildSeed() {
         items,
         playlists,
         clientes: [],
+        sesiones: [],
         reservas: [],
         recomendaciones: [],
         // Próximo ID a asignar en cada colección.

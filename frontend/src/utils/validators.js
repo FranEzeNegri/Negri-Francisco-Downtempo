@@ -38,15 +38,25 @@ export function validateDJForm({ nombre, generoMusical, biografia, cantidadLikes
   return errors;
 }
 
-export function validateCompraForm({ nombre, email }) {
+export const MIN_PASSWORD = 8;
+
+// Con `registro` también se exige el nombre y el largo mínimo de la contraseña
+// (al iniciar sesión solo importa que no esté vacía).
+export function validateAuthForm({ nombre, email, password }, registro) {
   const errors = {};
 
-  if (!isNonEmptyString(nombre)) {
+  if (registro && !isNonEmptyString(nombre)) {
     errors.nombre = "El nombre es obligatorio.";
   }
 
   if (!isValidEmail(email)) {
     errors.email = "Ingresá un email válido.";
+  }
+
+  if (!password) {
+    errors.password = "Ingresá tu contraseña.";
+  } else if (registro && password.length < MIN_PASSWORD) {
+    errors.password = `Tiene que tener al menos ${MIN_PASSWORD} caracteres.`;
   }
 
   return errors;

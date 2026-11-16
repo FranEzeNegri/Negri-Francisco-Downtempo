@@ -10,6 +10,10 @@ class EventoRepository {
         return this.findAll().find((evento) => evento.idEvento === id);
     }
 
+    findByFecha(fecha) {
+        return this.findAll().find((evento) => evento.fecha === fecha);
+    }
+
     findByDJ(idDJ) {
         return this.findAll().filter((evento) => evento.idsDJ.includes(idDJ));
     }

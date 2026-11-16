@@ -1,4 +1,14 @@
 export const Messages = Object.freeze({
+    // Cuentas de cliente
+    CLIENTE_REGISTRADO: "Cuenta creada correctamente.",
+    CLIENTE_NOT_FOUND: "El cliente no existe.",
+    LOGIN_OK: "Sesión iniciada.",
+    LOGOUT_OK: "Sesión cerrada.",
+    EMAIL_DUPLICADO: "Ya existe una cuenta con ese email.",
+    CREDENCIALES_INVALIDAS: "El email o la contraseña son incorrectos.",
+    SESION_REQUERIDA: "Tenés que iniciar sesión para hacer esto.",
+    SESION_VENCIDA: "Tu sesión venció. Volvé a iniciar sesión.",
+
     // DJ
     DJ_NOT_FOUND: "El DJ no existe.",
     DJ_DUPLICATED: "Ya existe un DJ con ese nombre.",
@@ -16,13 +26,14 @@ export const Messages = Object.freeze({
     EVENTO_CON_RESERVAS: "No se puede eliminar un evento que ya tiene entradas vendidas.",
     EVENTO_CAPACIDAD_INSUFICIENTE: "La capacidad no puede ser menor a las entradas ya vendidas.",
     EVENTO_DJ_NOT_FOUND: "Alguno de los DJs indicados no existe.",
+    EVENTO_FECHA_OCUPADA: "Ya hay otro evento programado para esa fecha.",
 
     // Reservas / entradas
     RESERVA_NOT_FOUND: "La reserva no existe.",
     RESERVA_CREATED: "Compra realizada correctamente.",
     RESERVA_CANCELADA: "Reserva cancelada. Las entradas volvieron a estar disponibles.",
     RESERVA_YA_CANCELADA: "La reserva ya estaba cancelada.",
-    RESERVA_EMAIL_NO_COINCIDE: "El email no coincide con el de la reserva.",
+    RESERVA_AJENA: "Esta reserva pertenece a otra cuenta.",
     RESERVA_NO_CANCELABLE_PASADA: "No se puede cancelar una reserva de un evento que ya pasó.",
     RESERVA_NO_CANCELABLE_USADA: "No se puede cancelar una reserva con entradas ya usadas.",
     EVENTO_PASADO: "Este evento ya pasó, no se pueden comprar entradas.",
@@ -64,6 +75,8 @@ export const Messages = Object.freeze({
     INVALID_ID_EVENTO: "El evento es obligatorio y debe ser un ID entero positivo.",
     INVALID_CANTIDAD_ENTRADAS: "La cantidad de entradas debe ser un número entero entre 1 y 6.",
     INVALID_EMAIL: "El email es obligatorio y debe ser válido.",
+    INVALID_PASSWORD: "La contraseña es obligatoria y debe tener entre 8 y 72 caracteres.",
+    PASSWORD_REQUERIDA: "La contraseña es obligatoria.",
     INVALID_PEDIDO: "El pedido debe ser una lista de { idItem, cantidad } con cantidades entre 1 y 10.",
     INVALID_CATEGORIA: "La categoría es obligatoria y debe ser un texto.",
     INVALID_TITULO_CANCION: "El título de la canción es obligatorio.",

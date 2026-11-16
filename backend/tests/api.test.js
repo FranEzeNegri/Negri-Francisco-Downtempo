@@ -8,17 +8,28 @@ import store from "../src/db/store.js";
 let server;
 let baseUrl;
 
-const api = async (path, { method = "GET", body, admin = false } = {}) => {
+const api = async (path, { method = "GET", body, admin = false, token } = {}) => {
     const response = await fetch(`${baseUrl}${path}`, {
         method,
         headers: {
             "Content-Type": "application/json",
-            ...(admin ? { "x-admin-key": "clave-de-test" } : {})
+            ...(admin ? { "x-admin-key": "clave-de-test" } : {}),
+            ...(token ? { Authorization: `Bearer ${token}` } : {})
         },
         body: body ? JSON.stringify(body) : undefined
     });
 
     return { status: response.status, body: await response.json() };
+};
+
+// Registra un cliente y devuelve el token de su sesión.
+const registrar = async (email = "ana@mail.com") => {
+    const { body } = await api("/auth/registro", {
+        method: "POST",
+        body: { nombre: "Ana", email, password: "clave-segura" }
+    });
+
+    return body.data.token;
 };
 
 before(async () => {
@@ -46,27 +57,25 @@ describe("API pública", () => {
         assert.equal((await api("/eventos?dj=6")).body.data.length, 1);
     });
 
-    it("flujo completo: comprar, consultar por email, ver la entrada y cancelar", async () => {
+    it("flujo completo: registrarse, comprar, ver mis reservas, ver la entrada y cancelar", async () => {
+        const token = await registrar();
+
         const compra = await api("/reservas", {
             method: "POST",
-            body: {
-                idEvento: 1,
-                cantidadEntradas: 2,
-                nombre: "Ana",
-                email: "ana@mail.com",
-                pedido: [{ idItem: 1, cantidad: 2 }]
-            }
+            token,
+            body: { idEvento: 1, cantidadEntradas: 2, pedido: [{ idItem: 1, cantidad: 2 }] }
         });
         assert.equal(compra.status, 201);
+        assert.equal(compra.body.data.email, "ana@mail.com");
         const { idReserva, entradas } = compra.body.data;
 
-        const mias = await api("/reservas?email=ana@mail.com");
+        const mias = await api("/reservas", { token });
         assert.equal(mias.body.data.length, 1);
 
         const entrada = await api(`/entradas/${entradas[0].codigo}`);
         assert.equal(entrada.body.data.estado, "valida");
 
-        const cancelacion = await api(`/reservas/${idReserva}?email=ana@mail.com`, { method: "DELETE" });
+        const cancelacion = await api(`/reservas/${idReserva}`, { method: "DELETE", token });
         assert.equal(cancelacion.status, 200);
         assert.equal(cancelacion.body.data.estado, "cancelada");
 
@@ -75,18 +84,43 @@ describe("API pública", () => {
     });
 
     it("POST /reservas valida el cuerpo", async () => {
-        const base = { idEvento: 1, cantidadEntradas: 1, nombre: "Ana", email: "ana@mail.com" };
+        const token = await registrar();
+        const base = { idEvento: 1, cantidadEntradas: 1 };
+        const comprar = (body) => api("/reservas", { method: "POST", token, body });
 
-        assert.equal((await api("/reservas", { method: "POST", body: { ...base, cantidadEntradas: 7 } })).status, 400);
-        assert.equal((await api("/reservas", { method: "POST", body: { ...base, email: "sin-arroba" } })).status, 400);
-        assert.equal(
-            (await api("/reservas", { method: "POST", body: { ...base, pedido: [{ idItem: 1, cantidad: 0 }] } })).status,
-            400
-        );
+        assert.equal((await comprar({ ...base, cantidadEntradas: 7 })).status, 400);
+        assert.equal((await comprar({ ...base, idEvento: "uno" })).status, 400);
+        assert.equal((await comprar({ ...base, pedido: [{ idItem: 1, cantidad: 0 }] })).status, 400);
+        assert.equal((await comprar({ ...base, idEvento: 999 })).status, 404);
     });
 
-    it("GET /reservas exige un email válido", async () => {
-        assert.equal((await api("/reservas")).status, 400);
+    it("las reservas exigen sesión iniciada", async () => {
+        const sinSesion = await api("/reservas");
+        assert.equal(sinSesion.status, 401);
+        assert.equal(sinSesion.body.success, false);
+
+        assert.equal((await api("/reservas", { token: "token-inventado" })).status, 401);
+        assert.equal(
+            (await api("/reservas", { method: "POST", body: { idEvento: 1, cantidadEntradas: 1 } })).status,
+            401
+        );
+        assert.equal((await api("/eventos/1")).body.data.entradasDisponibles, 150);
+    });
+
+    it("un cliente no puede ver ni cancelar la reserva de otro", async () => {
+        const tokenAna = await registrar();
+        const tokenBeto = await registrar("beto@mail.com");
+        const compra = await api("/reservas", {
+            method: "POST",
+            token: tokenAna,
+            body: { idEvento: 1, cantidadEntradas: 1 }
+        });
+        const { idReserva } = compra.body.data;
+
+        assert.equal((await api("/reservas", { token: tokenBeto })).body.data.length, 0);
+        assert.equal((await api(`/reservas/${idReserva}`, { token: tokenBeto })).status, 403);
+        assert.equal((await api(`/reservas/${idReserva}`, { method: "DELETE", token: tokenBeto })).status, 403);
+        assert.equal((await api(`/reservas/${idReserva}`, { token: tokenAna })).status, 200);
     });
 
     it("POST /djs/:id/like y /recomendaciones son públicos", async () => {
@@ -106,6 +140,45 @@ describe("API pública", () => {
 
         assert.equal(status, 404);
         assert.equal(body.success, false);
+    });
+});
+
+describe("API de cuentas", () => {
+    const ana = { nombre: "Ana", email: "ana@mail.com", password: "clave-segura" };
+
+    it("registro, sesión actual, cierre de sesión e inicio de sesión", async () => {
+        const registro = await api("/auth/registro", { method: "POST", body: ana });
+        assert.equal(registro.status, 201);
+        assert.equal("contraseña" in registro.body.data.cliente, false);
+
+        const { token } = registro.body.data;
+        assert.equal((await api("/auth/yo", { token })).body.data.email, "ana@mail.com");
+
+        assert.equal((await api("/auth/logout", { method: "POST", token })).status, 200);
+        assert.equal((await api("/auth/yo", { token })).status, 401);
+
+        const login = await api("/auth/login", { method: "POST", body: { email: ana.email, password: ana.password } });
+        assert.equal(login.status, 200);
+        assert.equal((await api("/auth/yo", { token: login.body.data.token })).status, 200);
+    });
+
+    it("valida los datos del registro y no permite emails repetidos", async () => {
+        const registrarCon = (extra) => api("/auth/registro", { method: "POST", body: { ...ana, ...extra } });
+
+        assert.equal((await registrarCon({ nombre: "  " })).status, 400);
+        assert.equal((await registrarCon({ email: "sin-arroba" })).status, 400);
+        assert.equal((await registrarCon({ password: "corta" })).status, 400);
+        assert.equal((await registrarCon({})).status, 201);
+        assert.equal((await registrarCon({ email: "ANA@mail.com" })).status, 409);
+    });
+
+    it("rechaza el login con credenciales incorrectas", async () => {
+        await api("/auth/registro", { method: "POST", body: ana });
+        const login = (body) => api("/auth/login", { method: "POST", body });
+
+        assert.equal((await login({ email: ana.email, password: "otra-clave" })).status, 401);
+        assert.equal((await login({ email: "nadie@mail.com", password: ana.password })).status, 401);
+        assert.equal((await login({ email: ana.email })).status, 400);
     });
 });
 
@@ -137,7 +210,8 @@ describe("API de administración", () => {
     it("valida una entrada en la puerta una sola vez", async () => {
         const compra = await api("/reservas", {
             method: "POST",
-            body: { idEvento: 1, cantidadEntradas: 1, nombre: "Ana", email: "ana@mail.com" }
+            token: await registrar(),
+            body: { idEvento: 1, cantidadEntradas: 1 }
         });
         const { codigo } = compra.body.data.entradas[0];
 

@@ -57,15 +57,17 @@ el `.env.example` de cada carpeta como `.env`:
 | --- | --- | --- |
 | Inicio | `/` | Próxima fecha, cartelera con filtros, DJs, menú y galería del rooftop |
 | Detalle de evento | `/eventos/:id` | Descripción, line-up, horarios, cupo, mapa y compra |
-| Mis entradas | `/mis-entradas` | Reservas por email, con el QR de cada entrada y la opción de cancelar |
+| Ingresar | `/ingresar` | Crear cuenta o iniciar sesión (email y contraseña) |
+| Mis entradas | `/mis-entradas` | Reservas de la cuenta, con el QR de cada entrada y la opción de cancelar |
 | Administración | `/admin` | Alta, edición y baja de fechas, DJs y menú; control de puerta y ventas |
 
-- **Compra de entradas (simulada, sin cobro):** se elige la cantidad (hasta 6),
-  nombre y email. El backend descuenta el cupo y genera un código `DT-XXXXXX`
+- **Cuentas:** hay que registrarse (nombre, email y contraseña de 8 o más
+  caracteres) e iniciar sesión para comprar. La contraseña se guarda
+  hasheada (scrypt) y la sesión dura 7 días.
+- **Compra de entradas:** con la sesión iniciada se elige la cantidad (hasta 6). El pago se hace en la puerta. El backend descuenta el cupo y genera un código `DT-XXXXXX`
   por entrada, que se muestra con su QR. Opcionalmente se puede dejar
   encargado un pedido del menú, que se suma al total.
-- **Mis entradas:** el cliente se identifica con el email de la compra (no hay
-  contraseña). Cancelar devuelve las entradas al cupo del evento.
+- **Mis entradas:** cada cliente ve y cancela solo sus reservas. Cancelar devuelve las entradas al cupo del evento.
 - **Cartelera:** filtros por período, género y DJ, y "solo con entradas". Cada
   fecha muestra cuántas entradas quedan.
 - **DJs:** likes, ficha con playlists (cada tema abre una búsqueda en Spotify),
@@ -121,7 +123,7 @@ responden `401`).
 | --- | --- | --- |
 | GET | `/api/eventos` | Cartelera ordenada por fecha, con los DJs de cada evento |
 | GET | `/api/eventos/:id` | Un evento |
-| POST 🔒 | `/api/eventos` | Alta |
+| POST 🔒 | `/api/eventos` | Alta (no puede haber dos eventos en la misma fecha) |
 | PUT 🔒 | `/api/eventos/:id` | Edición (la capacidad no puede bajar de lo ya vendido) |
 | DELETE 🔒 | `/api/eventos/:id` | Baja (no se puede si ya tiene reservas) |
 
@@ -142,24 +144,38 @@ Filtros opcionales de `GET /api/eventos`: `genero`, `dj` (ID), `desde` y
 }
 ```
 
+### Cuentas
+
+| Método | Ruta | Descripción |
+| --- | --- | --- |
+| POST | `/api/auth/registro` | Crea la cuenta y devuelve `{ token, cliente }` |
+| POST | `/api/auth/login` | Inicia sesión y devuelve `{ token, cliente }` |
+| POST 🔐 | `/api/auth/logout` | Cierra la sesión |
+| GET 🔐 | `/api/auth/yo` | Cliente de la sesión actual |
+
+🔐 = exige el header `Authorization: Bearer <token>`.
+
+```json
+// POST /api/auth/registro
+{ "nombre": "Ana Pérez", "email": "ana@mail.com", "password": "clave-segura" }
+```
+
 ### Reservas y entradas
 
 | Método | Ruta | Descripción |
 | --- | --- | --- |
-| POST | `/api/reservas` | Compra: descuenta cupo y genera las entradas |
-| GET | `/api/reservas?email=` | Reservas hechas con ese email |
-| GET | `/api/reservas/:id` | Detalle de una reserva |
-| DELETE | `/api/reservas/:id?email=` | Cancela la reserva (hay que indicar el email de la compra) |
+| POST 🔐 | `/api/reservas` | Compra a nombre de la cuenta: descuenta cupo y genera las entradas |
+| GET 🔐 | `/api/reservas` | Reservas de la cuenta |
+| GET 🔐 | `/api/reservas/:id` | Detalle de una reserva propia (`403` si es de otra cuenta) |
+| DELETE 🔐 | `/api/reservas/:id` | Cancela una reserva propia |
 | GET | `/api/entradas/:codigo` | Consulta una entrada: `valida`, `usada` o `cancelada` |
 | POST 🔒 | `/api/entradas/:codigo/validar` | Control de puerta: marca la entrada como usada |
 
 ```json
-// POST /api/reservas  ("pedido" es opcional)
+// POST /api/reservas  ("pedido" es opcional; el comprador sale de la sesión)
 {
   "idEvento": 1,
   "cantidadEntradas": 2,
-  "nombre": "Ana Pérez",
-  "email": "ana@mail.com",
   "pedido": [{ "idItem": 1, "cantidad": 2 }]
 }
 ```

@@ -29,6 +29,17 @@
   color: var(--color-text-faint);
 }
 
+.checkout__buyer {
+  margin-bottom: var(--space-3);
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.checkout__buyer strong {
+  font-weight: 400;
+  color: var(--color-text);
+}
+
 /* Pre-pedido del menú */
 .checkout__preorder {
   border: 1px solid var(--color-border);

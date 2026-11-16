@@ -4,7 +4,7 @@ import clienteRepository from "../repositories/ClienteRepository.js";
 import menuRepository from "../repositories/MenuRepository.js";
 import eventoService from "./EventoService.js";
 import { EstadoReserva } from "../models/Reserva.js";
-import { NotFoundError, ConflictError, BadRequestError } from "../exceptions/AppError.js";
+import { NotFoundError, ConflictError, BadRequestError, ForbiddenError } from "../exceptions/AppError.js";
 import { Messages } from "../enums/Messages.js";
 import { hoy } from "../utils/fechas.js";
 
@@ -17,19 +17,27 @@ class ReservaService {
         return this.#detalles(reservaRepository.findAll());
     }
 
-    getById(id) {
-        return this.detalle(this.#getEntity(id));
+    // Detalle de una reserva: solo la puede ver el cliente que la hizo.
+    getById(id, idCliente) {
+        return this.detalle(this.#getPropia(id, idCliente));
     }
 
-    // "Mis reservas": el cliente se identifica por el email de la compra.
-    getByEmail(email) {
-        return this.#detalles(reservaRepository.findByEmail(this.#normalizarEmail(email)));
+    // "Mis entradas": las reservas del cliente con sesión iniciada.
+    getByCliente(idCliente) {
+        return this.#detalles(reservaRepository.findByCliente(idCliente));
     }
 
-    // Compra simulada: valida el evento y el cupo, descuenta las entradas y
-    // genera un código único por cada una. No hay cobro real.
+    // Compra: valida el evento y el cupo, descuenta las entradas y genera un
+    // código único por cada una. El pago se hace en la puerta.
+    // `idCliente` sale de la sesión, no del formulario.
     // `pedido` es opcional: [{ idItem, cantidad }] para dejar tragos o comida encargados.
-    create({ idEvento, cantidadEntradas, nombre, email, pedido = [] }) {
+    create({ idCliente, idEvento, cantidadEntradas, pedido = [] }) {
+        const cliente = clienteRepository.findById(idCliente);
+
+        if (!cliente) {
+            throw new NotFoundError(Messages.CLIENTE_NOT_FOUND);
+        }
+
         const evento = eventoService.getEntity(idEvento);
 
         if (evento.fecha < hoy()) {
@@ -41,7 +49,6 @@ class ReservaService {
         }
 
         const pedidoResuelto = this.#resolverPedido(pedido);
-        const cliente = this.#obtenerCliente(nombre.trim(), this.#normalizarEmail(email));
         const codigos = [];
 
         while (codigos.length < cantidadEntradas) {
@@ -63,14 +70,10 @@ class ReservaService {
         return this.detalle(reserva);
     }
 
-    // Cancela la reserva y devuelve las entradas al cupo del evento. Hay que
-    // indicar el mismo email con el que se compró.
-    cancel(id, email) {
-        const reserva = this.#getEntity(id);
-
-        if (reserva.email !== this.#normalizarEmail(email)) {
-            throw new BadRequestError(Messages.RESERVA_EMAIL_NO_COINCIDE);
-        }
+    // Cancela la reserva y devuelve las entradas al cupo del evento. Solo la
+    // puede cancelar el cliente que la hizo.
+    cancel(id, idCliente) {
+        const reserva = this.#getPropia(id, idCliente);
 
         if (reserva.estado === EstadoReserva.CANCELADA) {
             throw new ConflictError(Messages.RESERVA_YA_CANCELADA);
@@ -127,18 +130,15 @@ class ReservaService {
         return reserva;
     }
 
-    #normalizarEmail(email) {
-        return email.trim().toLowerCase();
-    }
+    // La reserva, siempre que sea del cliente indicado.
+    #getPropia(id, idCliente) {
+        const reserva = this.#getEntity(id);
 
-    #obtenerCliente(nombre, email) {
-        const existente = clienteRepository.findByEmail(email);
-
-        if (!existente) {
-            return clienteRepository.create({ nombre, email });
+        if (reserva.idCliente !== idCliente) {
+            throw new ForbiddenError(Messages.RESERVA_AJENA);
         }
 
-        return existente.nombre === nombre ? existente : clienteRepository.updateNombre(existente, nombre);
+        return reserva;
     }
 
     // Junta ítems repetidos y congela nombre y precio del menú al momento de la compra.

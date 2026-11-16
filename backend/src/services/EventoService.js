@@ -43,6 +43,7 @@ class EventoService {
     create(data) {
         const normalized = this.#normalize(data);
         this.#ensureDJsExisten(normalized.idsDJ);
+        this.#ensureFechaLibre(normalized.fecha);
 
         return this.#withDJs(eventoRepository.create(normalized));
     }
@@ -51,6 +52,7 @@ class EventoService {
         const actual = this.getEntity(id);
         const normalized = this.#normalize(data);
         this.#ensureDJsExisten(normalized.idsDJ);
+        this.#ensureFechaLibre(normalized.fecha, id);
 
         const vendidas = actual.capacidadMaxima - actual.entradasDisponibles;
         const entradasDisponibles = normalized.capacidadMaxima - vendidas;
@@ -75,6 +77,15 @@ class EventoService {
     #ensureDJsExisten(idsDJ) {
         if (!idsDJ.every((idDJ) => djRepository.findById(idDJ))) {
             throw new BadRequestError(Messages.EVENTO_DJ_NOT_FOUND);
+        }
+    }
+
+    // El rooftop es un solo espacio: no puede haber dos eventos la misma noche.
+    #ensureFechaLibre(fecha, idActual = null) {
+        const existente = eventoRepository.findByFecha(fecha);
+
+        if (existente && existente.idEvento !== idActual) {
+            throw new ConflictError(Messages.EVENTO_FECHA_OCUPADA);
         }
     }
 

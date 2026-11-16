@@ -1,71 +1,51 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 import Button from "../components/ui/Button.jsx";
-import FormField from "../components/ui/FormField.jsx";
 import ConfirmDialog from "../components/ui/ConfirmDialog.jsx";
 import SectionHeading from "../components/ui/SectionHeading.jsx";
 import Spinner from "../components/ui/Spinner.jsx";
 import TicketCard from "../components/tickets/TicketCard.jsx";
-import {
-  cancelarReserva,
-  emailRecordado,
-  getReservasPorEmail,
-  recordarEmail,
-} from "../services/reservaService.js";
+import { cancelarReserva, getMisReservas } from "../services/reservaService.js";
+import { useAuth } from "../context/AuthContext.jsx";
 import { useToast } from "../context/ToastContext.jsx";
 import { fechaHora, fechaLarga, formatPrecio, hoyISO } from "../utils/format.js";
-import { isValidEmail } from "../utils/validators.js";
 import "./MisEntradasPage.css";
 
-// "Mis entradas": el cliente se identifica con el email de la compra y ve
-// todas sus reservas, con el QR de cada entrada y la opción de cancelar.
+// "Mis entradas": las reservas del cliente con sesión iniciada, con el QR de
+// cada entrada y la opción de cancelar.
 function MisEntradasPage() {
+  const { cliente, cargando, sesionVencida } = useAuth();
   const toast = useToast();
 
-  const [email, setEmail] = useState(emailRecordado);
-  const [emailError, setEmailError] = useState("");
-  const [consulta, setConsulta] = useState({ email: "", reservas: null, loading: false, error: null });
+  const [consulta, setConsulta] = useState({ reservas: null, loading: true, error: null });
   const [pendingCancel, setPendingCancel] = useState(null);
   const [cancelLoading, setCancelLoading] = useState(false);
 
-  const buscar = useCallback(async (emailBuscado) => {
-    setConsulta((prev) => ({ ...prev, email: emailBuscado, loading: true, error: null }));
-
+  const cargar = useCallback(async () => {
     try {
-      const reservas = await getReservasPorEmail(emailBuscado);
-      recordarEmail(emailBuscado);
-      setConsulta({ email: emailBuscado, reservas, loading: false, error: null });
+      const reservas = await getMisReservas();
+      setConsulta({ reservas, loading: false, error: null });
     } catch (err) {
-      setConsulta({ email: emailBuscado, reservas: null, loading: false, error: err.message });
+      if (err.status === 401) sesionVencida();
+      setConsulta({ reservas: null, loading: false, error: err.message });
     }
-  }, []);
+  }, [sesionVencida]);
 
-  // Si este navegador ya compró antes, se muestran sus entradas sin pedir nada.
+  const idCliente = cliente?.idCliente;
+
   useEffect(() => {
-    const recordado = emailRecordado();
-    if (isValidEmail(recordado)) buscar(recordado);
-  }, [buscar]);
-
-  const handleSubmit = (event) => {
-    event.preventDefault();
-
-    if (!isValidEmail(email)) {
-      setEmailError("Ingresá un email válido.");
-      return;
-    }
-
-    setEmailError("");
-    buscar(email.trim().toLowerCase());
-  };
+    if (idCliente) cargar();
+  }, [idCliente, cargar]);
 
   const handleConfirmCancel = async () => {
     setCancelLoading(true);
 
     try {
-      await cancelarReserva(pendingCancel.idReserva, consulta.email);
+      await cancelarReserva(pendingCancel.idReserva);
       toast.success("Reserva cancelada. Las entradas volvieron a estar disponibles.");
-      await buscar(consulta.email);
+      await cargar();
     } catch (err) {
+      if (err.status === 401) sesionVencida();
       toast.error(err.message);
     } finally {
       setCancelLoading(false);
@@ -73,34 +53,31 @@ function MisEntradasPage() {
     }
   };
 
+  if (cargando) {
+    return (
+      <div className="page container">
+        <Spinner label="Verificando tu sesión…" />
+      </div>
+    );
+  }
+
+  // Sin sesión se pasa por el login y se vuelve a esta pantalla.
+  if (!cliente) {
+    return <Navigate to="/ingresar" state={{ from: "/mis-entradas" }} replace />;
+  }
+
   const { reservas, loading, error } = consulta;
 
   return (
     <div className="page container mis-entradas">
       <SectionHeading lead="Mis" highlight="entradas" level={1} />
       <p className="page__intro">
-        Ingresá el email con el que compraste para ver tus entradas, mostrar el QR en la puerta o cancelar una
-        reserva.
+        Hola, {cliente.nombre}. Acá están tus reservas: mostrá el QR o el código en la puerta, o cancelá una reserva si
+        no podés ir.
       </p>
 
-      <form className="mis-entradas__form" onSubmit={handleSubmit} noValidate>
-        <FormField
-          id="mis-entradas-email"
-          label="Email de la compra"
-          type="email"
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-          error={emailError}
-          autoComplete="email"
-          required
-        />
-        <Button type="submit" loading={loading}>
-          Buscar
-        </Button>
-      </form>
-
       <div aria-live="polite">
-        {loading && !reservas && <Spinner label="Buscando tus entradas…" />}
+        {loading && <Spinner label="Buscando tus entradas…" />}
 
         {error && (
           <p className="panel-state panel-state--error" role="alert">
@@ -110,7 +87,7 @@ function MisEntradasPage() {
 
         {reservas && reservas.length === 0 && (
           <div className="panel-state">
-            <p>No hay compras hechas con {consulta.email}.</p>
+            <p>Todavía no compraste entradas.</p>
             <Link to="/#entradas" className="btn btn--secondary">
               Ver la cartelera
             </Link>
@@ -120,7 +97,7 @@ function MisEntradasPage() {
         {reservas && reservas.length > 0 && (
           <>
             <p className="mis-entradas__count">
-              {reservas.length} {reservas.length === 1 ? "reserva" : "reservas"} de {consulta.email}
+              {reservas.length} {reservas.length === 1 ? "reserva" : "reservas"}
             </p>
             <ul className="mis-entradas__list">
               {reservas.map((reserva) => (

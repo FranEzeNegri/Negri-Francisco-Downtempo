@@ -6,6 +6,7 @@ import djService from "../src/services/DJService.js";
 import eventoService from "../src/services/EventoService.js";
 import menuService from "../src/services/MenuService.js";
 import reservaService from "../src/services/ReservaService.js";
+import authService from "../src/services/AuthService.js";
 import recomendacionService from "../src/services/RecomendacionService.js";
 import { BadRequestError, ConflictError, NotFoundError } from "../src/exceptions/AppError.js";
 import { Messages } from "../src/enums/Messages.js";
@@ -13,7 +14,11 @@ import { diasDesdeHoy } from "../src/utils/fechas.js";
 
 const conMensaje = (ErrorClass, message) => (error) => error instanceof ErrorClass && error.message === message;
 
-const nuevoEvento = (extra = {}) => ({
+const nuevoCliente = () => {
+    return authService.registrar({ nombre: "Ana", email: "ana@mail.com", password: "clave-segura" }).cliente.idCliente;
+};
+
+const nuevoEvento =(extra = {}) => ({
     nombre: " Noche de prueba ",
     fecha: diasDesdeHoy(5),
     horaInicio: "22:00",
@@ -138,7 +143,7 @@ describe("EventoService", () => {
     });
 
     it("al cambiar la capacidad conserva las entradas ya vendidas", () => {
-        reservaService.create({ idEvento: 1, cantidadEntradas: 4, nombre: "Ana", email: "ana@mail.com" });
+        reservaService.create({ idCliente: nuevoCliente(), idEvento: 1, cantidadEntradas: 4 });
         const actual = eventoService.getById(1);
 
         const editado = eventoService.update(1, { ...actual, capacidadMaxima: 100 });
@@ -147,7 +152,7 @@ describe("EventoService", () => {
     });
 
     it("no deja bajar la capacidad por debajo de lo vendido", () => {
-        reservaService.create({ idEvento: 1, cantidadEntradas: 4, nombre: "Ana", email: "ana@mail.com" });
+        reservaService.create({ idCliente: nuevoCliente(), idEvento: 1, cantidadEntradas: 4 });
         const actual = eventoService.getById(1);
 
         assert.throws(
@@ -157,7 +162,7 @@ describe("EventoService", () => {
     });
 
     it("no deja eliminar un evento con entradas vendidas", () => {
-        reservaService.create({ idEvento: 1, cantidadEntradas: 1, nombre: "Ana", email: "ana@mail.com" });
+        reservaService.create({ idCliente: nuevoCliente(), idEvento: 1, cantidadEntradas: 1 });
 
         assert.throws(() => eventoService.delete(1), conMensaje(ConflictError, Messages.EVENTO_CON_RESERVAS));
     });
